@@ -1,36 +1,154 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🥊 Sticker Fight - Multiplayer Fighting Game
 
-## Getting Started
+A real-time multiplayer fighting game built with Next.js and Socket.IO where two players control sticker man characters to battle each other.
 
-First, run the development server:
+## 🎮 How to Play
 
+1. **Create or Join a Room**: 
+   - Enter your fighter name
+   - Create a new room or join an existing one with a room code
+   - Share the room code with a friend
+
+2. **Controls**:
+   - **Move**: `A`/`D` keys or `←`/`→` arrow keys
+   - **Jump**: `W` key or `↑` arrow key  
+   - **Attack**: `SPACE` key
+
+3. **Objective**: 
+   - Reduce your opponent's health to 0 to win
+   - Each attack deals 10 damage
+   - Players start with 100 health
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Node.js (v18 or higher)
+- pnpm (or npm/yarn)
+
+### Installation
+
+1. Clone the repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <your-repo-url>
+cd sticker-main-indies-on-solana
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
+```bash
+pnpm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Start the development server:
+```bash
+pnpm dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Open your browser and navigate to `http://localhost:3000`
 
-## Learn More
+## 🏗️ Architecture
 
-To learn more about Next.js, take a look at the following resources:
+### Frontend Components
+- **GameLobby**: Room creation and joining interface
+- **GameArena**: The fighting arena with visual elements
+- **StickerMan**: Animated sticker character component
+- **GamePage**: Main game coordinator
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Backend Services
+- **Socket.IO Server**: Real-time multiplayer communication
+- **Game Logic**: Physics, collision detection, and game rules
+- **Room Management**: Player sessions and game state
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Key Features
+- ⚡ Real-time multiplayer using Socket.IO
+- 🎨 CSS-based character animations
+- 🎯 Collision detection and physics
+- 🏆 Win/lose conditions
+- 📱 Responsive design
+- 🎮 Keyboard controls
 
-## Deploy on Vercel
+## 🛠️ Technology Stack
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS
+- **Backend**: Node.js, Socket.IO
+- **Real-time Communication**: WebSockets
+- **Styling**: Tailwind CSS with custom animations
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🎯 Game Mechanics
+
+### Physics System
+- Gravity simulation
+- Ground collision detection
+- Player boundary constraints
+- Velocity-based movement
+
+### Combat System
+- Attack range detection
+- Health management
+- Knockback effects
+- Attack cooldown system
+
+### Multiplayer Features
+- Real-time position synchronization
+- Attack broadcasting
+- Player disconnection handling
+- Room-based matchmaking
+
+## 🎨 Visual Design
+
+The game features a colorful sticker-style art design with:
+- Animated sticker man characters
+- Dynamic health bars
+- Visual attack effects
+- Responsive arena backgrounds
+- Real-time UI updates
+
+## 🔧 Development
+
+### Project Structure
+```
+src/
+├── app/                 # Next.js app directory
+├── components/          # React components
+├── hooks/              # Custom React hooks
+├── services/           # API and Socket.IO services  
+├── types/              # TypeScript type definitions
+└── utils/              # Game logic and utilities
+```
+
+### Adding New Features
+1. Game mechanics can be modified in `src/utils/gameLogic.ts`
+2. Character animations in `src/components/StickerMan.tsx`
+3. Arena design in `src/components/GameArena.tsx`
+4. Socket events in `src/services/gameSocket.ts`
+
+## 🚀 Deployment
+
+For production deployment:
+
+1. Build the application:
+```bash
+pnpm build
+```
+
+2. Start the production server:
+```bash
+pnpm start
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+- **Connection Problems**: Ensure ports 3000 is available
+- **Game Not Starting**: Check that both players have joined the room
+- **Controls Not Working**: Make sure the game window has focus
+
+### Debug Mode
+The game includes console logging for debugging multiplayer connections and game events.
+
+## 🎉 Credits
+
+Built for the Underdog Hackathon - Indies on Solana
+
+---
+
+**Have fun fighting! 🥊**
