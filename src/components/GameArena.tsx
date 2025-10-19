@@ -3,14 +3,16 @@
 import React, { useRef, useEffect } from 'react';
 import { GameRoom, GameConfig } from '@/types/game';
 import StickerMan from './StickerMan';
+import DroppedItemComponent from './DroppedItem';
 
 interface GameArenaProps {
   room: GameRoom | null;
   config: GameConfig;
   playerId: string;
+  onPickupItem?: (itemId: string) => void;
 }
 
-export const GameArena: React.FC<GameArenaProps> = ({ room, config, playerId }) => {
+export const GameArena: React.FC<GameArenaProps> = ({ room, config, playerId, onPickupItem }) => {
   const arenaRef = useRef<HTMLDivElement>(null);
 
   const { canvasWidth, canvasHeight } = config;
@@ -121,6 +123,15 @@ export const GameArena: React.FC<GameArenaProps> = ({ room, config, playerId }) 
             key={player.id}
             player={player}
             scale={1}
+          />
+        ))}
+        
+        {/* Dropped Items */}
+        {room && room.droppedItems && Object.values(room.droppedItems).map((item) => (
+          <DroppedItemComponent
+            key={item.id}
+            item={item}
+            onPickup={(itemId) => onPickupItem?.(itemId)}
           />
         ))}
         

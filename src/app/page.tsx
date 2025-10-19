@@ -1,5 +1,5 @@
-import GamePage from '@/components/GamePage';
+import AuthenticatedApp from '@/components/AuthenticatedApp';
 
 export default function Home() {
-  return <GamePage />;
+  return <AuthenticatedApp />;
 }

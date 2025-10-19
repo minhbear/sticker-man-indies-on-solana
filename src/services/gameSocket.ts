@@ -204,6 +204,45 @@ class GameSocketService {
     }
   }
 
+  // Vorld integration - Item handling
+  sendPickupItem(itemId: string) {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('pickupItem', itemId);
+    }
+  }
+
+  sendEquipItem(itemId: string, slot: 'weapon' | 'shield') {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('equipItem', itemId, slot);
+    }
+  }
+
+  // Temporary method for Vorld integration (will need server-side support)
+  sendItemDrop(item: any) {
+    if (this.socket && this.isConnected) {
+      // Using socket.io's raw emit to bypass typing for now
+      (this.socket as any).emit('itemDropped', item);
+    }
+  }
+
+  onItemDropped(callback: (item: any) => void) {
+    if (this.socket) {
+      this.socket.on('itemDropped', callback);
+    }
+  }
+
+  onItemPickedUp(callback: (playerId: string, itemId: string) => void) {
+    if (this.socket) {
+      this.socket.on('itemPickedUp', callback);
+    }
+  }
+
+  onItemEquipped(callback: (playerId: string, item: any) => void) {
+    if (this.socket) {
+      this.socket.on('itemEquipped', callback);
+    }
+  }
+
   // Remove all listeners
   removeAllListeners() {
     if (this.socket) {

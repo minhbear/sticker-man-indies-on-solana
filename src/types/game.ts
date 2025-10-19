@@ -10,6 +10,24 @@ export interface Velocity {
   y: number;
 }
 
+// Vorld integration types
+export interface DroppedItem {
+  id: string;
+  type: 'weapon' | 'shield' | 'consumable';
+  name: string;
+  position: Position;
+  properties: {
+    attack?: number;
+    defense?: number;
+    heal?: number;
+    speedBoost?: number;
+    duration?: number; // for temporary boosts
+  };
+  icon: string;
+  droppedBy: string; // viewer name
+  droppedAt: number; // timestamp
+}
+
 export interface Player {
   id: string;
   name: string;
@@ -25,6 +43,12 @@ export interface Player {
   isAlive: boolean;
   attackCooldown: number;
   lastAttackTime: number;
+  // Vorld integration - equipped items
+  equippedWeapon?: DroppedItem;
+  equippedShield?: DroppedItem;
+  attackDamage: number;
+  defense: number;
+  moveSpeedMultiplier: number;
 }
 
 export interface GameRoom {
@@ -36,6 +60,8 @@ export interface GameRoom {
   currentPlayers: number;
   gameStartTime?: Date;
   winner?: string;
+  // Vorld integration - items in arena
+  droppedItems: Record<string, DroppedItem>;
 }
 
 export enum GameState {
@@ -81,6 +107,10 @@ export interface ServerToClientEvents {
   roomNotFound: () => void;
   playerDisconnected: (playerId: string) => void;
   gameUpdate: (room: GameRoom) => void;
+  // Vorld integration events
+  itemDropped: (item: DroppedItem) => void;
+  itemPickedUp: (playerId: string, itemId: string) => void;
+  itemEquipped: (playerId: string, item: DroppedItem) => void;
 }
 
 export interface ClientToServerEvents {
@@ -90,6 +120,9 @@ export interface ClientToServerEvents {
   playerMove: (position: Position, velocity: Velocity, controls: Controls) => void;
   playerAttack: () => void;
   playerReady: () => void;
+  // Vorld integration events
+  pickupItem: (itemId: string) => void;
+  equipItem: (itemId: string, slot: 'weapon' | 'shield') => void;
 }
 
 export interface AttackHitbox {

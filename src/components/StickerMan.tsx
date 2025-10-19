@@ -87,6 +87,26 @@ export const StickerMan: React.FC<StickerManProps> = ({ player, scale = 1 }) => 
         </div>
       </div>
       
+      {/* Equipment Display */}
+      {player.equippedWeapon && (
+        <div className="absolute top-2 -right-4 text-lg" title={`Equipped: ${player.equippedWeapon.name}`}>
+          ⚔️
+        </div>
+      )}
+      
+      {player.equippedShield && (
+        <div className="absolute top-2 -left-4 text-lg" title={`Equipped: ${player.equippedShield.name}`}>
+          🛡️
+        </div>
+      )}
+      
+      {/* Status Effects */}
+      {player.moveSpeedMultiplier > 1 && (
+        <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 text-xs animate-pulse">
+          💨 Speed Boost
+        </div>
+      )}
+      
       {/* Damage Effect */}
       {!isAlive && (
         <div className="absolute inset-0 flex items-center justify-center">

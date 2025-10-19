@@ -3,9 +3,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import GameLobby from '@/components/GameLobby';
 import GameArena from '@/components/GameArena';
-import { GameRoom, GameState, GameConfig, Position, Velocity, Controls } from '@/types/game';
+import { GameRoom, GameState, GameConfig, Position, Velocity, Controls, DroppedItem } from '@/types/game';
 import gameSocketService from '@/services/gameSocket';
 import { useGameControls } from '@/hooks/useGameControls';
+import { ArenaGameService, PackageDrop, ItemDrop } from '@/services/arenaGameService';
+import { UserProfile } from '@/libs/Vorld/authService';
 
 // Game configuration
 const GAME_CONFIG: GameConfig = {
@@ -23,12 +25,21 @@ const GAME_CONFIG: GameConfig = {
 
 type GamePageState = 'lobby' | 'waiting' | 'playing';
 
-export default function GamePage() {
+interface GamePageProps {
+  userProfile: UserProfile | null;
+  userToken: string;
+  arenaService: ArenaGameService | null;
+}
+
+export default function GamePage({ userProfile, userToken, arenaService }: GamePageProps) {
   const [gameState, setGameState] = useState<GamePageState>('lobby');
   const [room, setRoom] = useState<GameRoom | null>(null);
   const [playerId, setPlayerId] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
+  
+  // Vorld Arena integration
+  const [isVorldConnected, setIsVorldConnected] = useState(false);
 
   // Game controls
   const isGameActive = gameState === 'playing' && room?.gameState === GameState.IN_PROGRESS;
@@ -44,6 +55,12 @@ export default function GamePage() {
       gameSocketService.sendPlayerAttack();
     }
   }, [isGameActive]);
+
+  const handlePickupItem = useCallback((itemId: string) => {
+    if (gameSocketService.connected) {
+      gameSocketService.sendPickupItem(itemId);
+    }
+  }, []);
 
   // Use game controls
   useGameControls({
@@ -114,6 +131,20 @@ export default function GamePage() {
       handleError('Player disconnected');
     });
 
+    // Vorld integration - Item event listeners
+    gameSocketService.onItemDropped((item) => {
+      console.log('Item dropped:', item);
+      // Item will be automatically included in room updates
+    });
+
+    gameSocketService.onItemPickedUp((playerId, itemId) => {
+      console.log('Item picked up by:', playerId, itemId);
+    });
+
+    gameSocketService.onItemEquipped((playerId, item) => {
+      console.log('Item equipped by:', playerId, item);
+    });
+
     // Connection status
     setIsConnected(gameSocketService.connected);
 
@@ -130,6 +161,9 @@ export default function GamePage() {
         gameSocketService.leaveRoom();
         gameSocketService.disconnect();
       }
+      if (arenaService) {
+        arenaService.disconnect();
+      }
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -138,7 +172,90 @@ export default function GamePage() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       handleBeforeUnload();
     };
-  }, []);
+  }, [arenaService]);
+
+  // Initialize Vorld Arena when game starts
+  useEffect(() => {
+    if (gameState === 'playing' && room?.gameState === GameState.IN_PROGRESS && arenaService) {
+      // Connect to Vorld Arena for viewer interactions
+      arenaService.connectToArena(room.id)
+        .then(() => {
+          setIsVorldConnected(true);
+          console.log('Connected to Vorld Arena for room:', room.id);
+        })
+        .catch((error: any) => {
+          console.error('Failed to connect to Vorld Arena:', error);
+          setError('Failed to connect to streaming platform');
+        });
+
+      // Setup item drop handlers
+      arenaService.onPackageDrop = (packageData: PackageDrop) => {
+        console.log('Package dropped by viewer:', packageData);
+        
+        // Process each item in the package
+        packageData.items.forEach((item: ItemDrop) => {
+          const droppedItem: DroppedItem = {
+            id: `vorld_${item.itemId}_${Date.now()}`,
+            type: item.metadata?.damage ? 'weapon' : item.metadata?.defense ? 'shield' : 'consumable',
+            name: item.itemName,
+            position: {
+              x: Math.random() * (GAME_CONFIG.canvasWidth - 100) + 50,
+              y: GAME_CONFIG.canvasHeight - 200
+            },
+            properties: {
+              attack: item.metadata?.damage,
+              defense: item.metadata?.defense,
+              heal: item.metadata?.speed,
+              speedBoost: item.metadata?.speed
+            },
+            icon: '🎁', // Default package icon
+            droppedBy: item.targetPlayer,
+            droppedAt: Date.now()
+          };
+
+          // Send item drop to server
+          if (gameSocketService.connected) {
+            gameSocketService.sendItemDrop(droppedItem);
+          }
+        });
+      };
+
+      arenaService.onImmediateItemDrop = (itemData: ItemDrop) => {
+        console.log('Immediate item dropped:', itemData);
+        
+        const droppedItem: DroppedItem = {
+          id: `immediate_${itemData.itemId}_${Date.now()}`,
+          type: 'consumable',
+          name: itemData.itemName,
+          position: {
+            x: Math.random() * (GAME_CONFIG.canvasWidth - 100) + 50,
+            y: GAME_CONFIG.canvasHeight - 200
+          },
+          properties: {
+            heal: itemData.metadata?.speed,
+            speedBoost: itemData.metadata?.speed,
+            duration: 10000 // 10 seconds
+          },
+          icon: '⚡', // Power-up icon
+          droppedBy: itemData.targetPlayer,
+          droppedAt: Date.now()
+        };
+
+        // Send immediate item drop to server
+        if (gameSocketService.connected) {
+          gameSocketService.sendItemDrop(droppedItem);
+        }
+      };
+    }
+
+    // Cleanup when leaving game
+    return () => {
+      if (gameState !== 'playing' && arenaService) {
+        arenaService.disconnect();
+        setIsVorldConnected(false);
+      }
+    };
+  }, [gameState, room?.gameState, room?.id, arenaService]);
 
   // Handle back to lobby
   const handleBackToLobby = useCallback(() => {
@@ -168,15 +285,28 @@ export default function GamePage() {
   // Render connection status
   const renderConnectionStatus = () => {
     return (
-      <div className="fixed top-4 left-4 z-50">
+      <div className="fixed top-4 left-4 z-50 space-y-2">
+        {/* Game Server Connection */}
         <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
           isConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
         }`}>
           <div className={`w-2 h-2 rounded-full ${
             isConnected ? 'bg-green-500' : 'bg-red-500'
           }`} />
-          <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
+          <span>Game: {isConnected ? 'Connected' : 'Disconnected'}</span>
         </div>
+        
+        {/* Vorld Arena Connection */}
+        {gameState === 'playing' && (
+          <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
+            isVorldConnected ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'
+          }`}>
+            <div className={`w-2 h-2 rounded-full ${
+              isVorldConnected ? 'bg-blue-500' : 'bg-gray-400'
+            }`} />
+            <span>Streaming: {isVorldConnected ? 'Live' : 'Offline'}</span>
+          </div>
+        )}
       </div>
     );
   };
@@ -218,6 +348,7 @@ export default function GamePage() {
               room={room}
               config={GAME_CONFIG}
               playerId={playerId}
+              onPickupItem={handlePickupItem}
             />
           </div>
 

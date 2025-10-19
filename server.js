@@ -57,6 +57,12 @@ function createPlayer(socketId, name, playerIndex) {
     isAlive: true,
     attackCooldown: 0,
     lastAttackTime: 0,
+    // Vorld integration - equipped items
+    equippedWeapon: null,
+    equippedShield: null,
+    attackDamage: GAME_CONFIG.attackDamage,
+    defense: 0,
+    moveSpeedMultiplier: 1.0,
   };
 }
 
@@ -120,6 +126,8 @@ app.prepare().then(() => {
         createdAt: new Date(),
         maxPlayers: 2,
         currentPlayers: 0,
+        // Vorld integration - items in arena
+        droppedItems: {},
       };
 
       gameRooms.set(roomId, newRoom);
@@ -211,7 +219,11 @@ app.prepare().then(() => {
       Object.entries(playerRoom.players).forEach(([playerId, player]) => {
         if (playerId !== socket.id && player.isAlive) {
           if (checkAttackHit(attacker, player)) {
-            const damagedPlayer = applyDamage(player, GAME_CONFIG.attackDamage);
+            // Calculate damage considering weapon and defense
+            let damage = attacker.attackDamage || GAME_CONFIG.attackDamage;
+            damage = Math.max(1, damage - (player.defense || 0)); // Minimum 1 damage
+            
+            const damagedPlayer = applyDamage(player, damage);
             playerRoom.players[playerId] = damagedPlayer;
             
             // Simple knockback
@@ -251,6 +263,101 @@ app.prepare().then(() => {
         playerRoom.gameStartTime = new Date();
         io.to(playerRoom.id).emit('gameStarted');
         io.to(playerRoom.id).emit('gameUpdate', playerRoom);
+      }
+    });
+
+    // Vorld integration - Item handling
+    socket.on('itemDropped', (item) => {
+      const playerRoom = findPlayerRoom(socket.id);
+      if (!playerRoom) return;
+
+      // Add item to room's dropped items
+      playerRoom.droppedItems[item.id] = item;
+      
+      // Notify all players in the room about the new item
+      io.to(playerRoom.id).emit('itemDropped', item);
+      io.to(playerRoom.id).emit('gameUpdate', playerRoom);
+      
+      console.log('Item dropped in room:', playerRoom.id, item.name);
+    });
+
+    socket.on('pickupItem', (itemId) => {
+      const playerRoom = findPlayerRoom(socket.id);
+      if (!playerRoom || !playerRoom.droppedItems[itemId]) return;
+
+      const item = playerRoom.droppedItems[itemId];
+      const player = playerRoom.players[socket.id];
+      
+      if (!player || !player.isAlive) return;
+
+      // Check if player is close enough to pick up the item
+      const distance = Math.sqrt(
+        Math.pow(player.position.x - item.position.x, 2) + 
+        Math.pow(player.position.y - item.position.y, 2)
+      );
+      
+      if (distance <= 50) { // 50px pickup range
+        // Remove item from dropped items
+        delete playerRoom.droppedItems[itemId];
+        
+        // Apply item effects based on type
+        if (item.type === 'consumable') {
+          // Apply consumable effects immediately
+          if (item.properties.heal) {
+            player.health = Math.min(player.maxHealth, player.health + item.properties.heal);
+            io.to(playerRoom.id).emit('playerHealthChanged', socket.id, player.health);
+          }
+          if (item.properties.speedBoost) {
+            player.moveSpeedMultiplier = item.properties.speedBoost;
+            // Reset speed boost after duration
+            setTimeout(() => {
+              if (playerRoom.players[socket.id]) {
+                playerRoom.players[socket.id].moveSpeedMultiplier = 1.0;
+              }
+            }, item.properties.duration || 10000);
+          }
+        }
+        
+        // Notify all players about pickup
+        io.to(playerRoom.id).emit('itemPickedUp', socket.id, itemId);
+        io.to(playerRoom.id).emit('gameUpdate', playerRoom);
+        
+        console.log('Player', socket.id, 'picked up item:', item.name);
+      }
+    });
+
+    socket.on('equipItem', (itemId, slot) => {
+      const playerRoom = findPlayerRoom(socket.id);
+      if (!playerRoom || !playerRoom.droppedItems[itemId]) return;
+
+      const item = playerRoom.droppedItems[itemId];
+      const player = playerRoom.players[socket.id];
+      
+      if (!player || !player.isAlive) return;
+
+      // Equip item to the specified slot
+      if (slot === 'weapon' && item.type === 'weapon') {
+        player.equippedWeapon = item;
+        player.attackDamage = GAME_CONFIG.attackDamage + (item.properties.attack || 0);
+        
+        // Remove from dropped items
+        delete playerRoom.droppedItems[itemId];
+        
+        io.to(playerRoom.id).emit('itemEquipped', socket.id, item);
+        io.to(playerRoom.id).emit('gameUpdate', playerRoom);
+        
+        console.log('Player', socket.id, 'equipped weapon:', item.name);
+      } else if (slot === 'shield' && item.type === 'shield') {
+        player.equippedShield = item;
+        player.defense = item.properties.defense || 0;
+        
+        // Remove from dropped items
+        delete playerRoom.droppedItems[itemId];
+        
+        io.to(playerRoom.id).emit('itemEquipped', socket.id, item);
+        io.to(playerRoom.id).emit('gameUpdate', playerRoom);
+        
+        console.log('Player', socket.id, 'equipped shield:', item.name);
       }
     });
 
