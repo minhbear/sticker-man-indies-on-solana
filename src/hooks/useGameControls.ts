@@ -9,6 +9,7 @@ interface UseGameControlsProps {
   gameConfig: GameConfig;
   isGameActive: boolean;
   playerId: string;
+  initialPosition?: Position | null;
 }
 
 export const useGameControls = ({
@@ -16,7 +17,8 @@ export const useGameControls = ({
   onAttack,
   gameConfig,
   isGameActive,
-  playerId
+  playerId,
+  initialPosition
 }: UseGameControlsProps) => {
   const keysPressed = useRef<Set<string>>(new Set());
   const playerPosition = useRef<Position>({ x: 100, y: 0 });
@@ -32,17 +34,37 @@ export const useGameControls = ({
     attack: false
   });
 
-  // Initialize player position based on player ID
+  // Initialize or sync player position from server snapshot
   useEffect(() => {
-    // Start players on ground level using normal canvas coordinates (y=0 is top)
-    const isPlayer1 = true; // This should be determined by the actual player order
-    playerPosition.current = {
-      x: isPlayer1 ? gameConfig.canvasWidth * 0.25 : gameConfig.canvasWidth * 0.75,
-      y: gameConfig.canvasHeight - 80 // Ground level (near bottom of canvas)
+    const fallbackPosition: Position = {
+      x: gameConfig.canvasWidth * 0.5,
+      y: gameConfig.canvasHeight - 80
     };
-    isGrounded.current = true; // Make sure player starts grounded
-    console.log('🎮 Player position initialized:', playerPosition.current);
+
+    playerPosition.current = { ...fallbackPosition };
+    playerVelocity.current = { x: 0, y: 0 };
+    isGrounded.current = fallbackPosition.y >= gameConfig.canvasHeight - 82;
+
+    console.log('🎮 Player position initialized/synced:', playerPosition.current);
   }, [gameConfig, playerId]);
+
+  // Keep local state loosely aligned with server when significant drift occurs
+  useEffect(() => {
+    if (!initialPosition) {
+      return;
+    }
+
+    const dx = playerPosition.current.x - initialPosition.x;
+    const dy = playerPosition.current.y - initialPosition.y;
+    const distanceSquared = dx * dx + dy * dy;
+    
+    if (distanceSquared > 100) { // >10px difference
+      playerPosition.current = { ...initialPosition };
+      playerVelocity.current = { x: 0, y: 0 };
+      isGrounded.current = initialPosition.y >= gameConfig.canvasHeight - 82;
+      console.log('🎯 Player position corrected to match server snapshot:', playerPosition.current);
+    }
+  }, [initialPosition?.x, initialPosition?.y, gameConfig.canvasHeight]);
 
   const updateControls = useCallback(() => {
     // Simple WASD + Arrow key controls for testing

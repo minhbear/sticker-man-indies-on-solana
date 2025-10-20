@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import GameLobby from '@/components/GameLobby';
 import GameArena from '@/components/GameArena';
+import BoostSystem from '@/components/BoostSystem';
+import ItemDropSystem from '@/components/ItemDropSystem';
 import { GameRoom, GameState, GameConfig, Position, Velocity, Controls, DroppedItem } from '@/types/game';
 import gameSocketService from '@/services/gameSocket';
 import { useGameControls } from '@/hooks/useGameControls';
-import { ArenaGameService, PackageDrop, ItemDrop } from '@/services/arenaGameService';
+import { ArenaGameService, PackageDrop, ItemDrop, GameState as ArenaGameState, BoostData } from '@/services/arenaGameService';
 import { UserProfile } from '@/libs/Vorld/authService';
 import { WeaponManager, WEAPON_SPAWN_CONFIG } from '@/config/weapons';
 
@@ -38,6 +40,12 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
   const [playerId, setPlayerId] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
+  const [streamUrl, setStreamUrl] = useState<string>('https://twitch.tv/your_channel_name');
+  const [arenaGameState, setArenaGameState] = useState<ArenaGameState | null>(arenaService?.getGameState() ?? null);
+  const [isInitializingArena, setIsInitializingArena] = useState(false);
+  const [arenaInitError, setArenaInitError] = useState('');
+  const [boostHistory, setBoostHistory] = useState<Array<BoostData & { timestamp?: string }>>([]);
+  const [itemDropHistory, setItemDropHistory] = useState<Array<ItemDrop & { newBalance?: number }>>([]);
   
   // Vorld Arena integration
   const [isVorldConnected, setIsVorldConnected] = useState(false);
@@ -48,6 +56,14 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
 
   // Game controls
   const isGameActive = gameState === 'playing' && room?.gameState === GameState.IN_PROGRESS;
+  
+  useEffect(() => {
+    if (!arenaService) {
+      setArenaGameState(null);
+      return;
+    }
+    setArenaGameState(arenaService.getGameState());
+  }, [arenaService]);
   
   const handlePlayerMove = useCallback((position: Position, velocity: Velocity, controls: Controls) => {
     if (isGameActive && gameSocketService.connected) {
@@ -82,13 +98,67 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
     }
   }, []);
 
+  const handleBoostSuccess = useCallback((data: BoostData) => {
+    setBoostHistory(prev => {
+      const entry = {
+        ...data,
+        timestamp: (data as unknown as { timestamp?: string })?.timestamp || new Date().toISOString()
+      };
+      return [entry, ...prev].slice(0, 20);
+    });
+  }, []);
+
+  const handleItemDropSuccess = useCallback((data: ItemDrop) => {
+    setItemDropHistory(prev => {
+      const entry = {
+        ...data,
+        timestamp: data.timestamp || new Date().toISOString()
+      };
+      return [entry, ...prev].slice(0, 20);
+    });
+  }, []);
+
+  const handleInitializeArenaGame = useCallback(async () => {
+    if (!arenaService) {
+      setArenaInitError('Arena service not available');
+      return;
+    }
+
+    setIsInitializingArena(true);
+    setArenaInitError('');
+
+    try {
+      const result = await arenaService.initializeGame(streamUrl);
+      if (result.success && result.data) {
+        setArenaGameState(result.data);
+        setIsVorldConnected(true);
+        console.log('Arena game initialized:', result.data.gameId);
+      } else {
+        setArenaInitError(result.error || 'Failed to initialize Arena game');
+      }
+    } catch (err) {
+      console.error('Arena initialization failed:', err);
+      setArenaInitError('Unexpected error during Arena initialization');
+    } finally {
+      setIsInitializingArena(false);
+    }
+  }, [arenaService, streamUrl]);
+
+  const currentPlayer = useMemo(() => {
+    if (!playerId || !room?.players) {
+      return null;
+    }
+    return room.players[playerId] ?? null;
+  }, [playerId, room]);
+
   // Use game controls - ensure playerId exists
   const gameControls = useGameControls({
     onMove: handlePlayerMove,
     onAttack: handlePlayerAttack,
     gameConfig: GAME_CONFIG,
     isGameActive: isGameActive, // Simplified - just use isGameActive
-    playerId: playerId || 'player1' // Fallback playerId
+    playerId: playerId || 'player1', // Fallback playerId
+    initialPosition: currentPlayer?.position ?? null
   });
 
   // Debug controls
@@ -285,9 +355,28 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
           setError('Failed to connect to streaming platform');
         });
 
+      // Vorld boost events
+      arenaService.onPlayerBoostActivated = (boostData: BoostData) => {
+        console.log('Player boost activated via Vorld:', boostData);
+        setBoostHistory(prev => {
+          const entry = {
+            ...boostData,
+            timestamp: (boostData as unknown as { timestamp?: string })?.timestamp || new Date().toISOString()
+          };
+          return [entry, ...prev].slice(0, 20);
+        });
+      };
+
       // Setup item drop handlers
       arenaService.onPackageDrop = (packageData: PackageDrop) => {
         console.log('Package dropped by viewer:', packageData);
+        setItemDropHistory(prev => {
+          const entries = packageData.items.map((item) => ({
+            ...item,
+            timestamp: item.timestamp || packageData.timestamp
+          }));
+          return [...entries, ...prev].slice(0, 20);
+        });
         
         // Process each item in the package
         packageData.items.forEach((item: ItemDrop) => {
@@ -319,6 +408,13 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
 
       arenaService.onImmediateItemDrop = (itemData: ItemDrop) => {
         console.log('Immediate item dropped:', itemData);
+        setItemDropHistory(prev => {
+          const entry = {
+            ...itemData,
+            timestamp: itemData.timestamp || new Date().toISOString()
+          };
+          return [entry, ...prev].slice(0, 20);
+        });
         
         const droppedItem: DroppedItem = {
           id: `immediate_${itemData.itemId}_${Date.now()}`,
@@ -347,9 +443,14 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
 
     // Cleanup when leaving game
     return () => {
-      if (gameState !== 'playing' && arenaService) {
-        arenaService.disconnect();
-        setIsVorldConnected(false);
+      if (arenaService) {
+        arenaService.onPlayerBoostActivated = undefined;
+        arenaService.onPackageDrop = undefined;
+        arenaService.onImmediateItemDrop = undefined;
+        if (gameState !== 'playing') {
+          arenaService.disconnect();
+          setIsVorldConnected(false);
+        }
       }
     };
   }, [gameState, room?.gameState, room?.id, arenaService]);
@@ -556,6 +657,101 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
               >
                 Copy Room Code
               </button>
+            </div>
+          )}
+
+          {arenaService && (
+            <div className="w-full max-w-5xl mt-10 space-y-6">
+              <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-semibold text-white flex items-center gap-2">
+                      🌐 Arena Arcade Integration
+                    </h2>
+                    <p className="text-sm text-gray-400">
+                      Initialize the Arena game with your stream URL to enable viewer boosts and live item drops.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="px-3 py-1 rounded-full border border-gray-600 text-gray-300">
+                      {arenaGameState ? `Arena ID: ${arenaGameState.gameId}` : 'Arena inactive'}
+                    </span>
+                    <span className={`px-3 py-1 rounded-full border text-sm ${
+                      isVorldConnected ? 'border-green-500 text-green-300' : 'border-gray-600 text-gray-400'
+                    }`}>
+                      {isVorldConnected ? 'Streaming Connected' : 'Streaming Offline'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+                  <label className="flex flex-col gap-2">
+                    <span className="text-sm text-gray-300">Stream URL</span>
+                    <input
+                      type="url"
+                      value={streamUrl}
+                      onChange={(event) => setStreamUrl(event.target.value)}
+                      placeholder="https://twitch.tv/your_channel_name"
+                      className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <button
+                    onClick={handleInitializeArenaGame}
+                    disabled={isInitializingArena}
+                    className="self-end bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/60 disabled:cursor-not-allowed text-white font-medium px-5 py-2 rounded-lg transition-colors"
+                  >
+                    {isInitializingArena ? 'Initializing...' : 'Initialize Arena Game'}
+                  </button>
+                </div>
+
+                {arenaInitError && (
+                  <div className="text-sm text-red-400">
+                    {arenaInitError}
+                  </div>
+                )}
+
+                {arenaGameState && (
+                  <div className="grid gap-3 text-sm text-gray-300 sm:grid-cols-3">
+                    <div className="bg-gray-900/70 border border-gray-800 rounded-lg p-3">
+                      <p className="text-gray-400 text-xs uppercase">Status</p>
+                      <p className="text-white font-semibold">{arenaGameState.status}</p>
+                    </div>
+                    <div className="bg-gray-900/70 border border-gray-800 rounded-lg p-3">
+                      <p className="text-gray-400 text-xs uppercase">Expires</p>
+                      <p className="text-white font-semibold">
+                        {new Date(arenaGameState.expiresAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="bg-gray-900/70 border border-gray-800 rounded-lg p-3">
+                      <p className="text-gray-400 text-xs uppercase">Arena Active</p>
+                      <p className={`font-semibold ${arenaGameState.arenaActive ? 'text-green-400' : 'text-gray-300'}`}>
+                        {arenaGameState.arenaActive ? 'Yes' : 'No'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {arenaGameState ? (
+                <div className="space-y-6">
+                  <BoostSystem
+                    gameService={arenaService}
+                    gameState={arenaGameState}
+                    boostHistory={boostHistory}
+                    onBoostSuccess={handleBoostSuccess}
+                  />
+                  <ItemDropSystem
+                    gameService={arenaService}
+                    gameState={arenaGameState}
+                    dropHistory={itemDropHistory}
+                    onItemDropSuccess={handleItemDropSuccess}
+                  />
+                </div>
+              ) : (
+                <div className="bg-gray-800 border border-dashed border-gray-700 rounded-xl p-6 text-center text-gray-400 text-sm">
+                  Initialize the Arena game to unlock boost controls and item drops.
+                </div>
+              )}
             </div>
           )}
         </div>
