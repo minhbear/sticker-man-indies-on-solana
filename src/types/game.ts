@@ -10,6 +10,19 @@ export interface Velocity {
   y: number;
 }
 
+// Weapon Types
+export interface WeaponInfo {
+  id: string;
+  name: string;
+  type: 'sword' | 'axe' | 'bow' | 'staff';
+  damage: number;
+  range: number;
+  cooldown: number;
+  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  icon: string;
+  description: string;
+}
+
 // Vorld integration types
 export interface DroppedItem {
   id: string;
@@ -24,8 +37,9 @@ export interface DroppedItem {
     duration?: number; // for temporary boosts
   };
   icon: string;
-  droppedBy: string; // viewer name
+  droppedBy: string; // viewer name or 'system' for timed spawns
   droppedAt: number; // timestamp
+  weaponInfo?: WeaponInfo; // Additional weapon-specific data
 }
 
 export interface Player {

@@ -220,8 +220,11 @@ class GameSocketService {
   // Temporary method for Vorld integration (will need server-side support)
   sendItemDrop(item: any) {
     if (this.socket && this.isConnected) {
+      console.log('📤 Sending item drop to server:', item);
       // Using socket.io's raw emit to bypass typing for now
       (this.socket as any).emit('itemDropped', item);
+    } else {
+      console.log('❌ Cannot send item drop - socket not connected');
     }
   }
 

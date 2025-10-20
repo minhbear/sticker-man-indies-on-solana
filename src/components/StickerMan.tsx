@@ -15,10 +15,10 @@ export const StickerMan: React.FC<StickerManProps> = ({ player, scale = 1 }) => 
   
   return (
     <div
-      className="absolute transition-all duration-100 ease-out"
+      className="absolute transition-all duration-100 ease-out z-20"
       style={{
         left: `${position.x}px`,
-        bottom: `${position.y}px`,
+        top: `${position.y}px`, // Changed from bottom to top - use normal canvas coordinates
         transform: `scale(${scale}) ${facingDirection === 'left' ? 'scaleX(-1)' : ''}`,
         transformOrigin: 'bottom center',
         opacity: isAlive ? 1 : 0.5,
@@ -89,14 +89,20 @@ export const StickerMan: React.FC<StickerManProps> = ({ player, scale = 1 }) => 
       
       {/* Equipment Display */}
       {player.equippedWeapon && (
-        <div className="absolute top-2 -right-4 text-lg" title={`Equipped: ${player.equippedWeapon.name}`}>
-          ⚔️
+        <div 
+          className="absolute top-2 -right-4 text-lg animate-pulse" 
+          title={`Equipped: ${player.equippedWeapon.name}${player.equippedWeapon.weaponInfo ? ` (+${player.equippedWeapon.weaponInfo.damage} damage)` : ''}`}
+        >
+          {player.equippedWeapon.weaponInfo?.icon || player.equippedWeapon.icon || '⚔️'}
         </div>
       )}
       
       {player.equippedShield && (
-        <div className="absolute top-2 -left-4 text-lg" title={`Equipped: ${player.equippedShield.name}`}>
-          🛡️
+        <div 
+          className="absolute top-2 -left-4 text-lg animate-pulse" 
+          title={`Equipped: ${player.equippedShield.name} (+${player.equippedShield.properties.defense || 0} defense)`}
+        >
+          {player.equippedShield.icon || '🛡️'}
         </div>
       )}
       

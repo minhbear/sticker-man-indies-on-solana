@@ -32,16 +32,6 @@ export const GameArena: React.FC<GameArenaProps> = ({ room, config, playerId, on
         style={{ height: `${canvasHeight * 0.3}px` }}
       />
       
-      {/* Platform/Stage */}
-      <div 
-        className="absolute bottom-0 left-1/2 transform -translate-x-1/2 bg-gray-600 border-2 border-gray-800 rounded-t-lg"
-        style={{ 
-          width: `${canvasWidth * 0.8}px`, 
-          height: '20px',
-          bottom: `${canvasHeight * 0.25}px`
-        }}
-      />
-      
       {/* Arena boundaries */}
       <div className="absolute left-0 top-0 w-4 h-full bg-gray-800 border-r-2 border-gray-600" />
       <div className="absolute right-0 top-0 w-4 h-full bg-gray-800 border-l-2 border-gray-600" />
@@ -138,18 +128,23 @@ export const GameArena: React.FC<GameArenaProps> = ({ room, config, playerId, on
         {/* Control Instructions */}
         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 text-white p-4 rounded-lg text-center text-sm">
           <div className="font-bold mb-2">Controls</div>
-          <div className="flex gap-6 text-xs">
-            <div>
-              <div className="font-semibold">Move:</div>
-              <div>A/D or ←/→</div>
+          <div className="flex gap-8 text-xs">
+            <div className="text-left">
+              <div className="font-semibold text-red-400">Player 1:</div>
+              <div>Move: A/D</div>
+              <div>Jump: W</div>
+              <div>Attack: SPACE</div>
             </div>
-            <div>
-              <div className="font-semibold">Jump:</div>
-              <div>W or ↑</div>
+            <div className="text-left">
+              <div className="font-semibold text-blue-400">Player 2:</div>
+              <div>Move: ←/→</div>
+              <div>Jump: ↑</div>
+              <div>Attack: ENTER</div>
             </div>
-            <div>
-              <div className="font-semibold">Attack:</div>
-              <div>SPACE</div>
+            <div className="text-left">
+              <div className="font-semibold text-yellow-400">Items:</div>
+              <div>Walk over weapons</div>
+              <div>to pick them up!</div>
             </div>
           </div>
         </div>

@@ -40,7 +40,9 @@ function generateRoomId() {
 function createPlayer(socketId, name, playerIndex) {
   const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b'];
   const x = playerIndex === 0 ? GAME_CONFIG.canvasWidth * 0.25 : GAME_CONFIG.canvasWidth * 0.75;
-  const y = GAME_CONFIG.canvasHeight * 0.25;
+  const y = GAME_CONFIG.canvasHeight - 80; // Start near bottom of canvas (ground level)
+  
+  console.log(`🎮 Creating player ${playerIndex} at position (${x}, ${y})`);
   
   return {
     id: socketId,
@@ -61,6 +63,7 @@ function createPlayer(socketId, name, playerIndex) {
     equippedWeapon: null,
     equippedShield: null,
     attackDamage: GAME_CONFIG.attackDamage,
+    attackRange: GAME_CONFIG.attackRange,
     defense: 0,
     moveSpeedMultiplier: 1.0,
   };
@@ -79,7 +82,10 @@ function checkAttackHit(attacker, target) {
   const distance = Math.abs(attacker.position.x - target.position.x);
   const verticalDistance = Math.abs(attacker.position.y - target.position.y);
   
-  return distance <= GAME_CONFIG.attackRange && verticalDistance <= GAME_CONFIG.playerHeight;
+  // Use weapon-specific range if available, otherwise use default
+  const attackRange = attacker.attackRange || GAME_CONFIG.attackRange;
+  
+  return distance <= attackRange && verticalDistance <= GAME_CONFIG.playerHeight;
 }
 
 function applyDamage(player, damage) {
@@ -198,6 +204,9 @@ app.prepare().then(() => {
         player.position.x = GAME_CONFIG.canvasWidth - playerWidth / 2;
       }
 
+      // Check for automatic weapon pickup when player moves
+      checkForAutoPickup(socket.id, playerRoom);
+
       socket.to(playerRoom.id).emit('playerMoved', socket.id, position, velocity);
       io.to(playerRoom.id).emit('gameUpdate', playerRoom);
     });
@@ -296,12 +305,39 @@ app.prepare().then(() => {
         Math.pow(player.position.y - item.position.y, 2)
       );
       
-      if (distance <= 50) { // 50px pickup range
+      console.log('🔍 Pickup attempt:', {
+        playerId: socket.id,
+        playerPos: player.position,
+        itemPos: item.position,
+        distance: distance,
+        itemName: item.name
+      });
+      
+      if (distance <= 80) { // Increased pickup range to 80px
         // Remove item from dropped items
         delete playerRoom.droppedItems[itemId];
         
         // Apply item effects based on type
-        if (item.type === 'consumable') {
+        if (item.type === 'weapon') {
+          // Automatically equip weapon when picked up
+          player.equippedWeapon = item;
+          player.attackDamage = GAME_CONFIG.attackDamage + (item.properties.attack || 0);
+          
+          // Update attack range if weapon has special range
+          if (item.weaponInfo && item.weaponInfo.range) {
+            player.attackRange = item.weaponInfo.range;
+          }
+          
+          io.to(playerRoom.id).emit('itemEquipped', socket.id, item);
+          console.log('Player', socket.id, 'equipped weapon:', item.name, 'Attack:', player.attackDamage);
+        } else if (item.type === 'shield') {
+          // Automatically equip shield when picked up
+          player.equippedShield = item;
+          player.defense = item.properties.defense || 0;
+          
+          io.to(playerRoom.id).emit('itemEquipped', socket.id, item);
+          console.log('Player', socket.id, 'equipped shield:', item.name, 'Defense:', player.defense);
+        } else if (item.type === 'consumable') {
           // Apply consumable effects immediately
           if (item.properties.heal) {
             player.health = Math.min(player.maxHealth, player.health + item.properties.heal);
@@ -370,6 +406,56 @@ app.prepare().then(() => {
       handlePlayerDisconnect(socket.id);
     });
   });
+
+  function checkForAutoPickup(playerId, playerRoom) {
+    const player = playerRoom.players[playerId];
+    if (!player || !player.isAlive) {
+      return;
+    }
+
+    // Only log occasionally to reduce spam
+    const shouldLog = Math.random() < 0.01; // 1% chance
+    if (shouldLog) {
+      console.log(`🔍 Checking pickup for ${player.name} at (${player.position.x}, ${player.position.y})`);
+      console.log(`🎒 Available items:`, Object.keys(playerRoom.droppedItems));
+    }
+
+    // Check all dropped items for proximity
+    Object.entries(playerRoom.droppedItems).forEach(([itemId, item]) => {
+      const distance = Math.sqrt(
+        Math.pow(player.position.x - item.position.x, 2) + 
+        Math.pow(player.position.y - item.position.y, 2)
+      );
+
+      if (shouldLog) {
+        console.log(`📏 Distance to ${item.name}: ${distance} (pickup range: 100)`);
+      }
+
+      if (distance <= 100) { // Increased auto-pickup range for easier testing
+        console.log(`🚀 AUTO-PICKUP TRIGGERED: ${player.name} found ${item.name} at distance ${distance}`);
+        
+        // Remove item from dropped items
+        delete playerRoom.droppedItems[itemId];
+        
+        // Apply item effects based on type
+        if (item.type === 'weapon') {
+          player.equippedWeapon = item;
+          player.attackDamage = GAME_CONFIG.attackDamage + (item.properties.attack || 0);
+          
+          if (item.weaponInfo && item.weaponInfo.range) {
+            player.attackRange = item.weaponInfo.range;
+          }
+          
+          io.to(playerRoom.id).emit('itemEquipped', playerId, item);
+          io.to(playerRoom.id).emit('itemPickedUp', playerId, itemId);
+          console.log('🗡️ Player', playerId, 'auto-equipped weapon:', item.name);
+        }
+        
+        // Update game state
+        io.to(playerRoom.id).emit('gameUpdate', playerRoom);
+      }
+    });
+  }
 
   function handlePlayerDisconnect(playerId) {
     const playerRoom = findPlayerRoom(playerId);

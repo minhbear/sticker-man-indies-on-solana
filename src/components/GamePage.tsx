@@ -8,6 +8,7 @@ import gameSocketService from '@/services/gameSocket';
 import { useGameControls } from '@/hooks/useGameControls';
 import { ArenaGameService, PackageDrop, ItemDrop } from '@/services/arenaGameService';
 import { UserProfile } from '@/libs/Vorld/authService';
+import { WeaponManager, WEAPON_SPAWN_CONFIG } from '@/config/weapons';
 
 // Game configuration
 const GAME_CONFIG: GameConfig = {
@@ -40,15 +41,34 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
   
   // Vorld Arena integration
   const [isVorldConnected, setIsVorldConnected] = useState(false);
+  
+  // Weapon spawn system
+  const [weaponSpawnTimer, setWeaponSpawnTimer] = useState<NodeJS.Timeout | null>(null);
+  const [lastWeaponSpawn, setLastWeaponSpawn] = useState<string>('');
 
   // Game controls
   const isGameActive = gameState === 'playing' && room?.gameState === GameState.IN_PROGRESS;
   
   const handlePlayerMove = useCallback((position: Position, velocity: Velocity, controls: Controls) => {
     if (isGameActive && gameSocketService.connected) {
+      // Only log occasionally to reduce spam
+      if (Math.random() < 0.1) { // 10% chance to log with actual values
+        console.log('📡 Player move with values:', { 
+          playerId, 
+          position: `(${Math.round(position.x)}, ${Math.round(position.y)})`, 
+          velocity: `(${Math.round(velocity.x)}, ${Math.round(velocity.y)})`, 
+          controls 
+        });
+      }
       gameSocketService.sendPlayerMove(position, velocity, controls);
+    } else {
+      console.log('❌ Cannot send move - game not active or not connected:', { 
+        isGameActive, 
+        connected: gameSocketService.connected,
+        playerId 
+      });
     }
-  }, [isGameActive]);
+  }, [isGameActive, playerId]);
 
   const handlePlayerAttack = useCallback(() => {
     if (isGameActive && gameSocketService.connected) {
@@ -62,14 +82,77 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
     }
   }, []);
 
-  // Use game controls
-  useGameControls({
+  // Use game controls - ensure playerId exists
+  const gameControls = useGameControls({
     onMove: handlePlayerMove,
     onAttack: handlePlayerAttack,
     gameConfig: GAME_CONFIG,
-    isGameActive,
-    playerId
+    isGameActive: isGameActive, // Simplified - just use isGameActive
+    playerId: playerId || 'player1' // Fallback playerId
   });
+
+  // Debug controls
+  useEffect(() => {
+    console.log('🎮 Game controls state:', {
+      playerId,
+      isGameActive,
+      controlsActive: isGameActive,
+      hasPlayerId: !!playerId,
+      controls: gameControls?.currentControls,
+      position: gameControls?.currentPosition
+    });
+  }, [playerId, isGameActive, gameControls?.currentControls, gameControls?.currentPosition]);
+
+  // Spawn a random weapon function
+  const spawnRandomWeapon = useCallback(() => {
+    const weapon = WeaponManager.getRandomWeapon();
+    const droppedWeapon = WeaponManager.createDroppedWeapon(weapon);
+    
+    console.log(`🗡️ Spawning weapon: ${weapon.name} at position (${droppedWeapon.position.x}, ${droppedWeapon.position.y})`);
+    
+    // Show notification
+    setError(`⚔️ ${weapon.name} spawned! Look for the ${weapon.icon}`);
+    setTimeout(() => setError(''), 3000);
+    
+    // Send weapon drop to server
+    if (gameSocketService.connected) {
+      gameSocketService.sendItemDrop(droppedWeapon);
+    } else {
+      console.log('❌ GameSocket not connected, cannot spawn weapon');
+    }
+  }, []);
+
+  // Weapon spawn timer function
+  const startWeaponSpawnTimer = useCallback(() => {
+    console.log('🎯 Starting weapon spawn timer...');
+    
+    // Clear any existing timer
+    if (weaponSpawnTimer) {
+      clearInterval(weaponSpawnTimer);
+    }
+
+    // Start new timer to spawn weapons every 10 seconds for testing
+    const timer = setInterval(() => {
+      console.log('⏰ Timer tick - checking game state:', gameState, room?.gameState);
+      if (gameState === 'playing' && room?.gameState === GameState.IN_PROGRESS) {
+        console.log('✅ Conditions met, spawning weapon!');
+        spawnRandomWeapon();
+      } else {
+        console.log('❌ Conditions not met for weapon spawn');
+      }
+    }, 10000); // 10 seconds for faster testing
+
+    setWeaponSpawnTimer(timer);
+  }, [gameState, room?.gameState, weaponSpawnTimer, spawnRandomWeapon]);
+
+  // Clean up weapon timer on unmount or game end
+  useEffect(() => {
+    return () => {
+      if (weaponSpawnTimer) {
+        clearInterval(weaponSpawnTimer);
+      }
+    };
+  }, [weaponSpawnTimer]);
 
   // Handle room joined
   const handleRoomJoined = useCallback((roomId: string) => {
@@ -119,10 +202,24 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
 
     gameSocketService.onGameStarted(() => {
       setGameState('playing');
+      
+      // Spawn a weapon immediately for testing
+      setTimeout(() => {
+        console.log('🚀 Game started, spawning first weapon immediately!');
+        spawnRandomWeapon();
+      }, 2000); // 2 seconds after game starts
+      
+      // Start weapon spawn timer for future weapons
+      startWeaponSpawnTimer();
     });
 
     gameSocketService.onGameEnded((winner) => {
       console.log('Game ended, winner:', winner);
+      // Stop weapon spawn timer when game ends
+      if (weaponSpawnTimer) {
+        clearInterval(weaponSpawnTimer);
+        setWeaponSpawnTimer(null);
+      }
       // Game end is handled by the GameArena component
     });
 
@@ -368,6 +465,81 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
               >
                 Ready to Fight!
               </button>
+            )}
+            
+            {/* Debug buttons for testing */}
+            {isGameActive && (
+              <div className="flex gap-2 mt-2 flex-wrap">
+                <button
+                  onClick={spawnRandomWeapon}
+                  className="bg-purple-600 text-white px-4 py-1 rounded text-sm hover:bg-purple-700 transition-colors"
+                >
+                  🗡️ Spawn Weapon
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('🔍 Debug info:', {
+                      playerId,
+                      gameState: room?.gameState,
+                      droppedItems: room?.droppedItems,
+                      players: room?.players,
+                      myPosition: gameControls?.currentPosition
+                    });
+                  }}
+                  className="bg-blue-600 text-white px-4 py-1 rounded text-sm hover:bg-blue-700 transition-colors"
+                >
+                  🐛 Debug
+                </button>
+                <button
+                  onClick={() => {
+                    // Test movement manually - use ground level coordinates
+                    handlePlayerMove(
+                      { x: 200, y: GAME_CONFIG.canvasHeight - 80 }, 
+                      { x: 0, y: 0 }, 
+                      { left: false, right: false, jump: false, attack: false }
+                    );
+                    console.log('🧪 Manual move test sent to ground level');
+                  }}
+                  className="bg-green-600 text-white px-4 py-1 rounded text-sm hover:bg-green-700 transition-colors"
+                >
+                  🧪 Test Move
+                </button>
+                <button
+                  onClick={() => {
+                    // Force left movement
+                    handlePlayerMove(
+                      { x: Math.max(50, (gameControls?.currentPosition?.x || 200) - 50), y: GAME_CONFIG.canvasHeight - 80 }, 
+                      { x: -4, y: 0 }, 
+                      { left: true, right: false, jump: false, attack: false }
+                    );
+                    console.log('⬅️ Force move left');
+                  }}
+                  className="bg-orange-600 text-white px-4 py-1 rounded text-sm hover:bg-orange-700 transition-colors"
+                >
+                  ⬅️ Move Left
+                </button>
+                <button
+                  onClick={() => {
+                    // Force right movement
+                    handlePlayerMove(
+                      { x: Math.min(750, (gameControls?.currentPosition?.x || 200) + 50), y: GAME_CONFIG.canvasHeight - 80 }, 
+                      { x: 4, y: 0 }, 
+                      { left: false, right: true, jump: false, attack: false }
+                    );
+                    console.log('➡️ Force move right');
+                  }}
+                  className="bg-orange-600 text-white px-4 py-1 rounded text-sm hover:bg-orange-700 transition-colors"
+                >
+                  ➡️ Move Right
+                </button>
+              </div>
+            )}
+            
+            {/* Position display for debugging */}
+            {isGameActive && gameControls?.currentPosition && (
+              <div className="mt-2 text-xs text-gray-300 font-mono">
+                Position: ({Math.round(gameControls.currentPosition.x)}, {Math.round(gameControls.currentPosition.y)})
+              </div>
             )}
           </div>
 

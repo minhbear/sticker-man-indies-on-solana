@@ -34,23 +34,43 @@ export const useGameControls = ({
 
   // Initialize player position based on player ID
   useEffect(() => {
-    // Player 1 starts on the left, Player 2 on the right
+    // Start players on ground level using normal canvas coordinates (y=0 is top)
     const isPlayer1 = true; // This should be determined by the actual player order
     playerPosition.current = {
       x: isPlayer1 ? gameConfig.canvasWidth * 0.25 : gameConfig.canvasWidth * 0.75,
-      y: gameConfig.canvasHeight * 0.25 // Start on the platform
+      y: gameConfig.canvasHeight - 80 // Ground level (near bottom of canvas)
     };
     isGrounded.current = true; // Make sure player starts grounded
+    console.log('🎮 Player position initialized:', playerPosition.current);
   }, [gameConfig, playerId]);
 
   const updateControls = useCallback(() => {
+    // Simple WASD + Arrow key controls for testing
+    const wasPressed = keysPressed.current;
+    
     controls.current = {
-      left: keysPressed.current.has('ArrowLeft') || keysPressed.current.has('KeyA'),
-      right: keysPressed.current.has('ArrowRight') || keysPressed.current.has('KeyD'),
-      jump: keysPressed.current.has('ArrowUp') || keysPressed.current.has('KeyW'),
-      attack: keysPressed.current.has('Space')
+      left: wasPressed.has('KeyA') || wasPressed.has('ArrowLeft'),
+      right: wasPressed.has('KeyD') || wasPressed.has('ArrowRight'),
+      jump: wasPressed.has('KeyW') || wasPressed.has('ArrowUp'),
+      attack: wasPressed.has('Space') || wasPressed.has('Enter') || wasPressed.has('NumpadEnter')
     };
-  }, []);
+    
+    // Manual pickup with F key
+    if (wasPressed.has('KeyF')) {
+      console.log('🎯 Manual pickup attempt triggered!');
+      // This will be handled in the key handler
+    }
+    
+    // Debug only when controls change (reduce spam)
+    const hasMovement = controls.current.left || controls.current.right || controls.current.jump || controls.current.attack;
+    if (hasMovement && Math.random() < 0.02) { // 2% chance to log when moving
+      console.log('🎮 Controls active:', {
+        keys: Array.from(wasPressed),
+        controls: controls.current,
+        position: playerPosition.current
+      });
+    }
+  }, [isGameActive, playerId]);
 
   const updatePhysics = useCallback(() => {
     if (!isGameActive) return;
@@ -76,13 +96,13 @@ export const useGameControls = ({
 
     // Jumping - only allow if grounded
     if (currentControls.jump && isGrounded.current) {
-      velocity.y = jumpForce;
+      velocity.y = -jumpForce; // Negative to go up (y=0 is top)
       isGrounded.current = false;
     }
 
-    // Apply gravity when not grounded
+    // Apply gravity when not grounded - normal canvas coordinates
     if (!isGrounded.current) {
-      velocity.y -= gravity; // Note: negative because y=0 is at bottom
+      velocity.y += gravity; // Positive gravity pulls down
     }
 
     // Update position with time-based movement for smoother animation
@@ -90,9 +110,9 @@ export const useGameControls = ({
     position.x += velocity.x * deltaTime;
     position.y += velocity.y * deltaTime;
 
-    // Ground collision - fix the ground level calculation
-    const groundLevel = canvasHeight * 0.25; // This is where the platform is
-    if (position.y <= groundLevel) {
+    // Ground collision - normal canvas coordinates (y=0 is top)
+    const groundLevel = canvasHeight - 80; // Ground is near bottom of canvas
+    if (position.y >= groundLevel) { // >= because higher Y values are lower on screen
       position.y = groundLevel;
       velocity.y = 0;
       isGrounded.current = true;
@@ -132,19 +152,31 @@ export const useGameControls = ({
   }, [isGameActive, gameConfig, onMove, onAttack]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    if (!isGameActive) return;
+    if (!isGameActive) {
+      console.log('🚫 Key ignored - game not active:', event.code);
+      return;
+    }
     
-    // Prevent default behavior for game keys
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(event.code)) {
+    // Prevent default behavior for ALL game keys
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Enter', 'NumpadEnter'].includes(event.code)) {
       event.preventDefault();
+      event.stopPropagation();
     }
 
     keysPressed.current.add(event.code);
     updateControls();
+    
+    console.log('🎮 Key pressed:', event.code, 'Active keys:', Array.from(keysPressed.current));
   }, [isGameActive, updateControls]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!isGameActive) return;
+    
+    // Prevent default for game keys
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Enter', 'NumpadEnter'].includes(event.code)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     
     keysPressed.current.delete(event.code);
     updateControls();
@@ -152,20 +184,36 @@ export const useGameControls = ({
 
   // Set up event listeners
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    console.log('🎮 Setting up keyboard event listeners. isGameActive:', isGameActive);
+    
+    const handleKeyDownWrapper = (event: KeyboardEvent) => {
+      console.log('🎯 Raw keydown event:', event.code, 'isGameActive:', isGameActive);
+      handleKeyDown(event);
+    };
+    
+    const handleKeyUpWrapper = (event: KeyboardEvent) => {
+      console.log('🎯 Raw keyup event:', event.code, 'isGameActive:', isGameActive);
+      handleKeyUp(event);
+    };
+    
+    window.addEventListener('keydown', handleKeyDownWrapper);
+    window.addEventListener('keyup', handleKeyUpWrapper);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      console.log('🎮 Removing keyboard event listeners');
+      window.removeEventListener('keydown', handleKeyDownWrapper);
+      window.removeEventListener('keyup', handleKeyUpWrapper);
     };
-  }, [handleKeyDown, handleKeyUp]);
+  }, [handleKeyDown, handleKeyUp, isGameActive]);
 
   // Start/stop game loop
   useEffect(() => {
-    if (isGameActive) {
+    console.log('🎮 Game loop state change:', { isGameActive, playerId });
+    if (isGameActive && playerId) {
+      console.log('🚀 Starting game physics loop');
       animationFrameId.current = requestAnimationFrame(updatePhysics);
     } else {
+      console.log('⏸️ Stopping game physics loop - isGameActive:', isGameActive, 'playerId:', playerId);
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
       }
@@ -176,7 +224,19 @@ export const useGameControls = ({
         cancelAnimationFrame(animationFrameId.current);
       }
     };
-  }, [isGameActive, updatePhysics]);
+  }, [isGameActive, playerId, updatePhysics]);
+
+  // Debug hook state
+  useEffect(() => {
+    console.log('🎮 useGameControls hook state:', {
+      isGameActive,
+      playerId,
+      hasPosition: !!playerPosition.current,
+      position: playerPosition.current,
+      keysPressed: Array.from(keysPressed.current),
+      controls: controls.current
+    });
+  }, [isGameActive, playerId]);
 
   // Clean up on unmount
   useEffect(() => {
