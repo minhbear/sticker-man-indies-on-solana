@@ -313,7 +313,7 @@ app.prepare().then(() => {
         itemName: item.name
       });
       
-      if (distance <= 80) { // Increased pickup range to 80px
+      if (distance <= 45) { // Players must be close to pick up
         // Remove item from dropped items
         delete playerRoom.droppedItems[itemId];
         
@@ -431,7 +431,7 @@ app.prepare().then(() => {
         console.log(`📏 Distance to ${item.name}: ${distance} (pickup range: 100)`);
       }
 
-      if (distance <= 100) { // Increased auto-pickup range for easier testing
+      if (distance <= 50) { // Allow modest auto-pickup radius
         console.log(`🚀 AUTO-PICKUP TRIGGERED: ${player.name} found ${item.name} at distance ${distance}`);
         
         // Remove item from dropped items
