@@ -16,6 +16,8 @@ export const GameArena: React.FC<GameArenaProps> = ({ room, config, playerId, on
   const arenaRef = useRef<HTMLDivElement>(null);
 
   const { canvasWidth, canvasHeight } = config;
+  const GROUND_OFFSET = 80;
+  const groundHeight = Math.max(60, GROUND_OFFSET);
 
   // Background elements for the fighting arena
   const backgroundElements = (
@@ -23,13 +25,13 @@ export const GameArena: React.FC<GameArenaProps> = ({ room, config, playerId, on
       {/* Sky gradient */}
       <div 
         className="absolute inset-0 bg-gradient-to-b from-blue-400 via-blue-200 to-green-200"
-        style={{ height: `${canvasHeight * 0.7}px` }}
+        style={{ height: `${canvasHeight - groundHeight}px` }}
       />
       
       {/* Ground */}
       <div 
         className="absolute bottom-0 w-full bg-gradient-to-t from-green-600 to-green-400 border-t-4 border-green-800"
-        style={{ height: `${canvasHeight * 0.3}px` }}
+        style={{ height: `${groundHeight}px` }}
       />
       
       {/* Arena boundaries */}
@@ -126,7 +128,10 @@ export const GameArena: React.FC<GameArenaProps> = ({ room, config, playerId, on
         ))}
         
         {/* Control Instructions */}
-        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 text-white p-4 rounded-lg text-center text-sm">
+        <div
+          className="absolute left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 text-white p-4 rounded-lg text-center text-sm"
+          style={{ top: '96px' }}
+        >
           <div className="font-bold mb-2">Controls</div>
           <div className="flex gap-8 text-xs">
             <div className="text-left">
