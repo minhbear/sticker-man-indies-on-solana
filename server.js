@@ -134,6 +134,9 @@ app.prepare().then(() => {
         currentPlayers: 0,
         // Vorld integration - items in arena
         droppedItems: {},
+        arenaGameId: null,
+        arenaWebsocketUrl: null,
+        arenaExpiresAt: null,
       };
 
       gameRooms.set(roomId, newRoom);
@@ -177,6 +180,17 @@ app.prepare().then(() => {
       }
 
       console.log(`Player ${playerName} joined room ${roomId}`);
+    });
+
+    socket.on('arenaGameInitialized', (arenaInfo) => {
+      const playerRoom = findPlayerRoom(socket.id);
+      if (!playerRoom) return;
+
+      playerRoom.arenaGameId = arenaInfo?.gameId || null;
+      playerRoom.arenaWebsocketUrl = arenaInfo?.websocketUrl || null;
+      playerRoom.arenaExpiresAt = arenaInfo?.expiresAt || null;
+
+      io.to(playerRoom.id).emit('gameUpdate', playerRoom);
     });
 
     socket.on('playerMove', (position, velocity, controls) => {

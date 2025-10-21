@@ -2,7 +2,10 @@ import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 
 const ARENA_SERVER_URL = process.env.NEXT_PUBLIC_ARENA_SERVER_URL || 'wss://airdrop-arcade.onrender.com';
-const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || 'https://airdrop-arcade.onrender.com/api';
+
+const isBrowser = typeof window !== 'undefined';
+const DIRECT_API_URL = process.env.ARENA_DIRECT_API_URL || 'https://airdrop-arcade.onrender.com/api';
+const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || (isBrowser ? '/api/arena' : DIRECT_API_URL);
 const VORLD_APP_ID = process.env.NEXT_PUBLIC_VORLD_APP_ID || '';
 const ARENA_GAME_ID = process.env.NEXT_PUBLIC_ARENA_GAME_ID || '';
 

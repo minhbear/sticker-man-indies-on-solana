@@ -228,6 +228,14 @@ class GameSocketService {
     }
   }
 
+  shareArenaGame(arenaInfo: { gameId: string; websocketUrl: string; expiresAt?: string }) {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('arenaGameInitialized', arenaInfo);
+    } else {
+      console.log('❌ Cannot share Arena game - socket not connected');
+    }
+  }
+
   onItemDropped(callback: (item: any) => void) {
     if (this.socket) {
       this.socket.on('itemDropped', callback);

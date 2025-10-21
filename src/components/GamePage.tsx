@@ -132,6 +132,11 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
       if (result.success && result.data) {
         setArenaGameState(result.data);
         setIsVorldConnected(true);
+        gameSocketService.shareArenaGame({
+          gameId: result.data.gameId,
+          websocketUrl: result.data.websocketUrl,
+          expiresAt: result.data.expiresAt,
+        });
         console.log('Arena game initialized:', result.data.gameId);
       } else {
         setArenaInitError(result.error || 'Failed to initialize Arena game');
@@ -341,130 +346,165 @@ export default function GamePage({ userProfile, userToken, arenaService }: GameP
     };
   }, [arenaService]);
 
-  // Initialize Vorld Arena when game starts
+  // Sync Arena game from room metadata
   useEffect(() => {
-    if (gameState === 'playing' && room?.gameState === GameState.IN_PROGRESS && arenaService) {
-      // Connect to Vorld Arena for viewer interactions
-      arenaService.connectToArena(room.id)
-        .then(() => {
+    const gameIdFromRoom = room?.arenaGameId;
+    if (!arenaService) {
+      return;
+    }
+
+    if (!gameIdFromRoom) {
+      arenaService.disconnect();
+      setArenaGameState(null);
+      setIsVorldConnected(false);
+      return;
+    }
+
+    if (arenaGameState?.gameId === gameIdFromRoom) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    arenaService.joinExistingGame(gameIdFromRoom)
+      .then((result) => {
+        if (isCancelled) return;
+
+        if (result.success && result.data) {
+          setArenaGameState(result.data);
           setIsVorldConnected(true);
-          console.log('Connected to Vorld Arena for room:', room.id);
-        })
-        .catch((error: any) => {
-          console.error('Failed to connect to Vorld Arena:', error);
-          setError('Failed to connect to streaming platform');
-        });
+          console.log('Joined Arena game:', result.data.gameId);
+        } else {
+          setArenaInitError(result.error || 'Failed to join Arena game');
+          setIsVorldConnected(false);
+        }
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          console.error('Failed to join Arena game:', err);
+          setArenaInitError('Failed to join Arena game');
+          setIsVorldConnected(false);
+        }
+      });
 
-      // Vorld boost events
-      arenaService.onPlayerBoostActivated = (boostData: BoostData) => {
-        console.log('Player boost activated via Vorld:', boostData);
-        setBoostHistory(prev => {
-          const entry = {
-            ...boostData,
-            timestamp: (boostData as unknown as { timestamp?: string })?.timestamp || new Date().toISOString()
-          };
-          return [entry, ...prev].slice(0, 20);
-        });
-      };
+    return () => {
+      isCancelled = true;
+    };
+  }, [arenaService, room?.arenaGameId, arenaGameState?.gameId]);
 
-      // Setup item drop handlers
-      arenaService.onPackageDrop = (packageData: PackageDrop) => {
-        console.log('Package dropped by viewer:', packageData);
-        setItemDropHistory(prev => {
-          const entries = packageData.items.map((item) => ({
-            ...item,
-            timestamp: item.timestamp || packageData.timestamp
-          }));
-          return [...entries, ...prev].slice(0, 20);
-        });
-        
-        // Process each item in the package
-        packageData.items.forEach((item: ItemDrop) => {
-          const droppedItem: DroppedItem = {
-            id: `vorld_${item.itemId}_${Date.now()}`,
-            type: item.metadata?.damage ? 'weapon' : item.metadata?.defense ? 'shield' : 'consumable',
-            name: item.itemName,
-            position: {
-              x: Math.random() * (GAME_CONFIG.canvasWidth - 100) + 50,
-              y: GAME_CONFIG.canvasHeight - 200
-            },
-            properties: {
-              attack: item.metadata?.damage,
-              defense: item.metadata?.defense,
-              heal: item.metadata?.speed,
-              speedBoost: item.metadata?.speed
-            },
-            icon: '🎁', // Default package icon
-            droppedBy: item.targetPlayer,
-            droppedAt: Date.now()
-          };
+  // Initialize Vorld Arena event listeners when Arena game is ready
+  useEffect(() => {
+    if (!arenaService || !arenaGameState) {
+      return () => {};
+    }
 
-          // Send item drop to server
-          if (gameSocketService.connected) {
-            gameSocketService.sendItemDrop(droppedItem);
-          }
-        });
-      };
+    // Vorld boost events
+    arenaService.onPlayerBoostActivated = (boostData: BoostData) => {
+      console.log('Player boost activated via Vorld:', boostData);
+      setBoostHistory(prev => {
+        const entry = {
+          ...boostData,
+          timestamp: (boostData as unknown as { timestamp?: string })?.timestamp || new Date().toISOString()
+        };
+        return [entry, ...prev].slice(0, 20);
+      });
+    };
 
-      arenaService.onImmediateItemDrop = (itemData: ItemDrop) => {
-        console.log('Immediate item dropped:', itemData);
-        setItemDropHistory(prev => {
-          const entry = {
-            ...itemData,
-            timestamp: itemData.timestamp || new Date().toISOString()
-          };
-          return [entry, ...prev].slice(0, 20);
-        });
-        
+    // Setup item drop handlers
+    arenaService.onPackageDrop = (packageData: PackageDrop) => {
+      console.log('Package dropped by viewer:', packageData);
+      setItemDropHistory(prev => {
+        const entries = packageData.items.map((item) => ({
+          ...item,
+          timestamp: item.timestamp || packageData.timestamp
+        }));
+        return [...entries, ...prev].slice(0, 20);
+      });
+      
+      // Process each item in the package
+      packageData.items.forEach((item: ItemDrop) => {
         const droppedItem: DroppedItem = {
-          id: `immediate_${itemData.itemId}_${Date.now()}`,
-          type: 'consumable',
-          name: itemData.itemName,
+          id: `vorld_${item.itemId}_${Date.now()}`,
+          type: item.metadata?.damage ? 'weapon' : item.metadata?.defense ? 'shield' : 'consumable',
+          name: item.itemName,
           position: {
             x: Math.random() * (GAME_CONFIG.canvasWidth - 100) + 50,
             y: GAME_CONFIG.canvasHeight - 200
           },
           properties: {
-            heal: itemData.metadata?.speed,
-            speedBoost: itemData.metadata?.speed,
-            duration: 10000 // 10 seconds
+            attack: item.metadata?.damage,
+            defense: item.metadata?.defense,
+            heal: item.metadata?.speed,
+            speedBoost: item.metadata?.speed
           },
-          icon: '⚡', // Power-up icon
-          droppedBy: itemData.targetPlayer,
+          icon: '🎁', // Default package icon
+          droppedBy: item.targetPlayer,
           droppedAt: Date.now()
         };
 
-        // Send immediate item drop to server
+        // Send item drop to server
         if (gameSocketService.connected) {
           gameSocketService.sendItemDrop(droppedItem);
         }
-      };
-    }
+      });
+    };
 
-    // Cleanup when leaving game
-    return () => {
-      if (arenaService) {
-        arenaService.onPlayerBoostActivated = undefined;
-        arenaService.onPackageDrop = undefined;
-        arenaService.onImmediateItemDrop = undefined;
-        if (gameState !== 'playing') {
-          arenaService.disconnect();
-          setIsVorldConnected(false);
-        }
+    arenaService.onImmediateItemDrop = (itemData: ItemDrop) => {
+      console.log('Immediate item dropped:', itemData);
+      setItemDropHistory(prev => {
+        const entry = {
+          ...itemData,
+          timestamp: itemData.timestamp || new Date().toISOString()
+        };
+        return [entry, ...prev].slice(0, 20);
+      });
+      
+      const droppedItem: DroppedItem = {
+        id: `immediate_${itemData.itemId}_${Date.now()}`,
+        type: 'consumable',
+        name: itemData.itemName,
+        position: {
+          x: Math.random() * (GAME_CONFIG.canvasWidth - 100) + 50,
+          y: GAME_CONFIG.canvasHeight - 200
+        },
+        properties: {
+          heal: itemData.metadata?.speed,
+          speedBoost: itemData.metadata?.speed,
+          duration: 10000 // 10 seconds
+        },
+        icon: '⚡', // Power-up icon
+        droppedBy: itemData.targetPlayer,
+        droppedAt: Date.now()
+      };
+
+      // Send immediate item drop to server
+      if (gameSocketService.connected) {
+        gameSocketService.sendItemDrop(droppedItem);
       }
     };
-  }, [gameState, room?.gameState, room?.id, arenaService]);
+
+    return () => {
+      arenaService.onPlayerBoostActivated = undefined;
+      arenaService.onPackageDrop = undefined;
+      arenaService.onImmediateItemDrop = undefined;
+    };
+  }, [arenaService, arenaGameState?.gameId]);
 
   // Handle back to lobby
   const handleBackToLobby = useCallback(() => {
     if (gameSocketService.connected) {
       gameSocketService.leaveRoom();
     }
+    if (arenaService) {
+      arenaService.disconnect();
+      setIsVorldConnected(false);
+      setArenaGameState(null);
+    }
     setGameState('lobby');
     setRoom(null);
     setPlayerId('');
     setError('');
-  }, []);
+  }, [arenaService]);
 
   // Render error toast
   const renderError = () => {

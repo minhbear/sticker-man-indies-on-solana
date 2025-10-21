@@ -36,7 +36,10 @@ export const ItemDropSystem: React.FC<ItemDropSystemProps> = ({
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
 
-  const players = useMemo(() => gameState.evaGameDetails.players || [], [gameState]);
+  const players = useMemo(
+    () => gameState?.evaGameDetails?.players ?? [],
+    [gameState]
+  );
 
   useEffect(() => {
     if (players.length > 0 && !targetPlayer) {
@@ -67,6 +70,11 @@ export const ItemDropSystem: React.FC<ItemDropSystemProps> = ({
 
     if (!selectedItem || !targetPlayer) {
       setError('Please select an item and player.');
+      return;
+    }
+
+    if (!gameState?.gameId) {
+      setError('Arena game is not initialized yet.');
       return;
     }
 

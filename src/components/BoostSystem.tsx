@@ -24,7 +24,10 @@ export const BoostSystem: React.FC<BoostSystemProps> = ({
   boostHistory,
   onBoostSuccess
 }) => {
-  const players = useMemo(() => gameState.evaGameDetails.players || [], [gameState]);
+  const players = useMemo(
+    () => gameState?.evaGameDetails?.players ?? [],
+    [gameState]
+  );
   
   const [selectedPlayer, setSelectedPlayer] = useState<string>('');
   const [boostAmount, setBoostAmount] = useState<number>(BOOST_AMOUNTS[1]);
@@ -46,6 +49,11 @@ export const BoostSystem: React.FC<BoostSystemProps> = ({
 
     if (!selectedPlayer || !boosterUsername.trim()) {
       setError('Please select a player and enter the booster username.');
+      return;
+    }
+
+    if (!gameState?.gameId) {
+      setError('Arena game is not initialized yet.');
       return;
     }
 
@@ -82,7 +90,7 @@ export const BoostSystem: React.FC<BoostSystemProps> = ({
           ⚡ Player Boost System
         </h2>
         <span className="px-3 py-1 text-xs rounded-full bg-blue-600/20 text-blue-300 border border-blue-500/50">
-          Cycle: {gameState.evaGameDetails.numberOfCycles}
+          Cycle: {gameState?.evaGameDetails?.numberOfCycles ?? '—'}
         </span>
       </div>
 

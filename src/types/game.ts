@@ -76,6 +76,9 @@ export interface GameRoom {
   winner?: string;
   // Vorld integration - items in arena
   droppedItems: Record<string, DroppedItem>;
+  arenaGameId?: string | null;
+  arenaWebsocketUrl?: string | null;
+  arenaExpiresAt?: string | null;
 }
 
 export enum GameState {
@@ -137,6 +140,11 @@ export interface ClientToServerEvents {
   // Vorld integration events
   pickupItem: (itemId: string) => void;
   equipItem: (itemId: string, slot: 'weapon' | 'shield') => void;
+  arenaGameInitialized: (arenaInfo: {
+    gameId: string;
+    websocketUrl: string;
+    expiresAt?: string;
+  }) => void;
 }
 
 export interface AttackHitbox {

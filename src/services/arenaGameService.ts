@@ -1,8 +1,28 @@
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 
-const ARENA_SERVER_URL = process.env.NEXT_PUBLIC_ARENA_SERVER_URL || 'wss://airdrop-arcade.onrender.com';
-const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || 'https://airdrop-arcade.onrender.com/api';
+const isBrowser = typeof window !== 'undefined';
+const DIRECT_API_URL = process.env.ARENA_DIRECT_API_URL || 'https://airdrop-arcade.onrender.com/api';
+const DIRECT_API_BASE = (() => {
+  try {
+    return new URL(DIRECT_API_URL).origin;
+  } catch {
+    return 'https://airdrop-arcade.onrender.com';
+  }
+})();
+const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || (isBrowser ? '/api/arena' : DIRECT_API_URL);
+
+function normalizeWebsocketUrl(url?: string | null): string | null {
+  if (!url) return null;
+
+  try {
+    return new URL(url).toString();
+  } catch {
+    const normalizedPath = url.startsWith('/') ? url : `/${url}`;
+    return `${DIRECT_API_BASE}${normalizedPath}`;
+  }
+}
+const ARENA_SOCKET_PATH = process.env.NEXT_PUBLIC_ARENA_SOCKET_PATH || '/socket.io';
 const VORLD_APP_ID = process.env.NEXT_PUBLIC_VORLD_APP_ID || '';
 const ARENA_GAME_ID = process.env.NEXT_PUBLIC_ARENA_GAME_ID || '';
 
@@ -107,6 +127,7 @@ export class ArenaGameService {
   private socket: Socket | null = null;
   private gameState: GameState | null = null;
   private userToken: string = '';
+  private currentGameId: string | null = null;
   
   // Event callbacks
   public onArenaCountdownStarted?: (data: any) => void;
@@ -141,9 +162,14 @@ export class ArenaGameService {
       });
 
       this.gameState = response.data.data;
+      const resolvedUrl = normalizeWebsocketUrl(this.gameState?.websocketUrl);
+      if (this.gameState && resolvedUrl) {
+        this.gameState = { ...this.gameState, websocketUrl: resolvedUrl };
+      }
+      this.currentGameId = this.gameState?.gameId || null;
       
       // Connect to WebSocket
-      if (this.gameState?.websocketUrl) {
+      if (this.gameState?.gameId) {
         await this.connectWebSocket();
       }
 
@@ -162,118 +188,163 @@ export class ArenaGameService {
   // Connect to WebSocket
   private async connectWebSocket(): Promise<boolean> {
     try {
-      if (!this.gameState?.websocketUrl) return false;
+      if (!this.gameState?.gameId || !this.gameState.websocketUrl) return false;
 
-      this.socket = io(this.gameState.websocketUrl, {
-        transports: ['websocket'],
-        auth: {
-          token: this.userToken,
-          appId: VORLD_APP_ID
-        }
-      });
+      const targetGameId = this.gameState.gameId;
+      const parsedUrl = new URL(this.gameState.websocketUrl);
+      const namespace = parsedUrl.pathname || '/';
+      const baseUrl = parsedUrl.origin;
+      const connectionUrl = `${baseUrl}${namespace}`;
 
-      this.setupEventListeners();
+      if (this.socket && this.currentGameId === targetGameId && this.socket.connected) {
+        return true;
+      }
 
-      return new Promise((resolve) => {
-        this.socket?.on('connect', () => {
-          console.log('Connected to Arena WebSocket');
-          resolve(true);
-        });
+      if (this.socket) {
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+        this.socket = null;
+      }
 
-        this.socket?.on('connect_error', (error) => {
-          console.error('WebSocket connection failed:', error);
-          resolve(false);
-        });
-      });
-    } catch (error) {
-      console.error('Failed to connect to WebSocket:', error);
-      return false;
-    }
-  }
-
-  // Connect to Vorld Arena WebSocket using game ID
-  async connectToArena(gameId: string): Promise<boolean> {
-    try {
-      this.socket = io(ARENA_SERVER_URL, {
+      const socket = io(connectionUrl, {
+        path: ARENA_SOCKET_PATH,
         transports: ['websocket', 'polling'],
         auth: {
           token: this.userToken,
-          gameId: gameId,
-          arenaGameId: ARENA_GAME_ID
-        }
+          appId: VORLD_APP_ID,
+          arenaGameId: ARENA_GAME_ID,
+          gameId: targetGameId,
+        },
       });
 
-      this.setupEventListeners();
+      this.socket = socket;
+      this.currentGameId = targetGameId;
+      this.setupSocketEventListeners(socket);
 
       return new Promise((resolve) => {
-        this.socket?.on('connect', () => {
-          console.log('Connected to Vorld Arena WebSocket');
+        socket.on('connect', () => {
+          console.log('Connected to Arena Socket');
+          socket.emit('join_game', { gameId: targetGameId });
           resolve(true);
         });
 
-        this.socket?.on('connect_error', (error) => {
-          console.error('Arena WebSocket connection failed:', error);
+        socket.on('connect_error', (error) => {
+          console.error('Arena socket connection failed:', error);
           resolve(false);
         });
       });
     } catch (error) {
-      console.error('Failed to connect to Arena WebSocket:', error);
+      console.error('Failed to connect to Arena socket:', error);
       return false;
     }
   }
 
-  // Set up WebSocket event listeners
-  private setupEventListeners(): void {
-    // Arena Events
-    this.socket?.on('arena_countdown_started', (data) => {
+  // Set up Socket.IO event listeners
+  private setupSocketEventListeners(socket: Socket): void {
+    socket.off('arena_countdown_started');
+    socket.on('arena_countdown_started', (data) => {
       this.onArenaCountdownStarted?.(data);
     });
 
-    this.socket?.on('countdown_update', (data) => {
+    socket.off('countdown_update');
+    socket.on('countdown_update', (data) => {
       this.onCountdownUpdate?.(data);
     });
 
-    this.socket?.on('arena_begins', (data) => {
+    socket.off('arena_begins');
+    socket.on('arena_begins', (data) => {
       this.onArenaBegins?.(data);
     });
 
-    // Boost Events
-    this.socket?.on('player_boost_activated', (data) => {
-      this.onPlayerBoostActivated?.(data);
-    });
-
-    this.socket?.on('boost_cycle_update', (data) => {
-      this.onBoostCycleUpdate?.(data);
-    });
-
-    this.socket?.on('boost_cycle_complete', (data) => {
-      this.onBoostCycleComplete?.(data);
-    });
-
-    // Package Events
-    this.socket?.on('package_drop', (data) => {
-      this.onPackageDrop?.(data);
-    });
-
-    this.socket?.on('immediate_item_drop', (data) => {
-      this.onImmediateItemDrop?.(data);
-    });
-
-    // Game Events
-    this.socket?.on('event_triggered', (data) => {
-      this.onEventTriggered?.(data);
-    });
-
-    this.socket?.on('player_joined', (data) => {
-      this.onPlayerJoined?.(data);
-    });
-
-    this.socket?.on('game_completed', (data) => {
+    socket.off('arena_ends');
+    socket.on('arena_ends', (data) => {
       this.onGameCompleted?.(data);
     });
 
-    this.socket?.on('game_stopped', (data) => {
+    socket.off('arena_completed');
+    socket.on('arena_completed', (data) => {
+      this.onGameCompleted?.(data);
+    });
+
+    socket.off('player_boost_activated');
+    socket.on('player_boost_activated', (data) => {
+      this.onPlayerBoostActivated?.(data);
+    });
+
+    socket.off('boost_cycle_update');
+    socket.on('boost_cycle_update', (data) => {
+      this.onBoostCycleUpdate?.(data);
+    });
+
+    socket.off('boost_cycle_complete');
+    socket.on('boost_cycle_complete', (data) => {
+      this.onBoostCycleComplete?.(data);
+    });
+
+    socket.off('package_drop');
+    socket.on('package_drop', (data) => {
+      this.onPackageDrop?.(data);
+    });
+
+    socket.off('immediate_item_drop');
+    socket.on('immediate_item_drop', (data) => {
+      this.onImmediateItemDrop?.(data);
+    });
+
+    socket.off('game_state_update');
+    socket.on('game_state_update', (data) => {
+      this.onEventTriggered?.(data);
+    });
+
+    socket.off('event_triggered');
+    socket.on('event_triggered', (data) => {
+      this.onEventTriggered?.(data);
+    });
+
+    socket.off('player_joined');
+    socket.on('player_joined', (data) => {
+      this.onPlayerJoined?.(data);
+    });
+
+    socket.off('game_completed');
+    socket.on('game_completed', (data) => {
+      this.onGameCompleted?.(data);
+    });
+
+    socket.off('game_stopped');
+    socket.on('game_stopped', (data) => {
       this.onGameStopped?.(data);
+    });
+
+    socket.off('joined_game');
+    socket.on('joined_game', (data) => {
+      console.log('Arena socket joined game:', data);
+    });
+
+    socket.off('disconnect');
+    socket.on('disconnect', (reason) => {
+      console.log('Arena socket disconnected:', reason);
+      if (this.currentGameId && reason === 'io server disconnect') {
+        // Server requested disconnect; attempt to reconnect automatically
+        setTimeout(() => {
+          if (socket.disconnected) {
+            socket.connect();
+          }
+        }, 1000);
+      }
+    });
+
+    socket.off('error');
+    socket.on('error', (error) => {
+      console.error('Arena socket error:', error);
+    });
+
+    socket.off('reconnect');
+    socket.on('reconnect', () => {
+      if (this.currentGameId) {
+        console.log('Arena socket reconnected, re-joining game');
+        socket.emit('join_game', { gameId: this.currentGameId });
+      }
     });
   }
 
@@ -288,9 +359,20 @@ export class ArenaGameService {
         }
       });
 
+      this.gameState = response.data.data;
+      const resolvedUrl = normalizeWebsocketUrl(this.gameState?.websocketUrl);
+      if (this.gameState && resolvedUrl) {
+        this.gameState = { ...this.gameState, websocketUrl: resolvedUrl };
+      }
+      this.currentGameId = this.gameState?.gameId || null;
+
+      if (this.gameState?.gameId) {
+        await this.connectWebSocket();
+      }
+
       return {
         success: true,
-        data: response.data.data
+        data: this.gameState
       };
     } catch (error: any) {
       return {
@@ -298,6 +380,10 @@ export class ArenaGameService {
         error: error.response?.data?.message || 'Failed to get game details'
       };
     }
+  }
+
+  async joinExistingGame(gameId: string): Promise<{ success: boolean; data?: GameState; error?: string }> {
+    return this.getGameDetails(gameId);
   }
 
   // Boost a player
@@ -379,9 +465,13 @@ export class ArenaGameService {
 
   // Disconnect from WebSocket
   disconnect(): void {
-    this.socket?.disconnect();
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+    }
     this.socket = null;
     this.gameState = null;
+    this.currentGameId = null;
   }
 
   // Get current game state
